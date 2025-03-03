@@ -1,0 +1,148 @@
+blueprint:
+  name: "Automate lights by motion sensor and timer"
+  description: "The purpose of this blueprint is to monitor the light (or group) status, motion sensor and a timer. All those entities are monitored to guarantee that you leave the lights on for the shortest possible time."
+  domain: automation
+  author: "Endrigo Antonini"
+  source_url: https://github.com/antonini/ha-blueprints/blob/main/automate-light-process-by-motion-sensor-and-timers.yaml
+  input:
+    light_target:
+      name: Light
+      selector:
+        entity:
+          filter:
+            domain:
+              - light
+    motion_entity:
+      name: Motion Sensor
+      selector:
+        entity:
+          filter:
+            domain:
+              - binary_sensor
+            device_class: motion
+    timer_entity:
+      name: Timmer controller
+      selector:
+        entity:
+          filter:
+            domain:
+              - timer
+    turn_on_only_if_after_sunset:
+      name: Turn lights (automatically) only if is after sunset
+      description: If on, the lights will turn on IF and ONLY IF is after the sunset and before of the sunrise
+      selector:
+        boolean:
+      default: true
+    guests_on_house:
+      name: Conditional control of automation
+      description: This entity will control if the automation should work or not. It would be nice to have a "boolean helper" so you can control the automation on your dashboard. It was created thinking to add a "guests on house". If true, the automation won't work
+      selector:
+        entity:
+          filter:
+            domain:
+              - input_boolean
+mode: single
+
+variables:
+  turn_on_only_if_after_sunset: !input turn_on_only_if_after_sunset
+
+triggers:
+  - entity_id: !input motion_entity
+    to: "off"
+    id: movement-clear
+    trigger: state
+    for:
+      hours: 0
+      minutes: 0
+      seconds: 0
+  - entity_id: !input motion_entity
+    to: "on"
+    id: movement-detected
+    trigger: state
+  - trigger: state
+    entity_id:
+      - !input light_target
+    to: "on"
+    id: light-turn-on
+  - event_type: timer.finished
+    event_data:
+      entity_id: !input timer_entity
+    id: timer-finished
+    trigger: event
+actions:
+  - choose:
+      - conditions:
+          - condition: trigger
+            id:
+              - light-turn-on
+        sequence:
+          - action: timer.start
+            metadata: {}
+            data: {}
+            target:
+              entity_id: !input timer_entity
+        alias: If turned the light on manually, starts the timer to turn lights off
+      - conditions:
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - movement-clear
+              - condition: state
+                entity_id: !input guests_on_house
+                state: "off"
+        sequence:
+          - action: timer.cancel
+            metadata: {}
+            data: {}
+            target:
+              entity_id: !input timer_entity
+          - action: timer.start
+            metadata: {}
+            data: {}
+            target:
+              entity_id: !input timer_entity
+        alias: >-
+          No movement and also no guests at home then starts the timer to turn lights off
+      - conditions:
+          - condition: trigger
+            id:
+              - movement-detected
+        sequence:
+          - action: timer.cancel
+            metadata: {}
+            data: {}
+            target:
+              entity_id: !input timer_entity
+          - if:
+              - condition: or
+                conditions:
+                  - condition: and
+                    conditions:
+                      - condition: sun
+                        before: sunrise
+                        after: sunset
+                      - condition: template
+                        value_template: "{{ turn_on_only_if_after_sunset == true }}"
+                    alias: Its dark and the control is on, so the result must be TRUE
+                  - condition: template
+                    value_template: "{{ turn_on_only_if_after_sunset == false }}"
+            then:
+              - action: light.turn_on
+                metadata: {}
+                data: {}
+                target:
+                  entity_id: !input light_target
+        alias: >-
+          If movement is detected, cancel the timer. Also, if turn_on_only_if_after_sunset is on and 
+          it is after the sunset and before the sunrise turn the lights on
+      - conditions:
+          - condition: trigger
+            id:
+              - timer-finished
+        sequence:
+          - data: {}
+            action: light.turn_off
+            target:
+              entity_id: !input light_target
+        alias: Timer finished. Turn the lights off
