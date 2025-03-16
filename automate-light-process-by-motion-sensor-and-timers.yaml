@@ -27,6 +27,12 @@ blueprint:
           filter:
             domain:
               - timer
+    disable_automatic_lights_on:
+      name: Disable automatic lights on
+      description: By default is false. If ON, the lights will not turn on automatically.
+      selector:
+        boolean:
+      default: false
     turn_on_only_if_after_sunset:
       name: Turn lights (automatically) only if is after sunset
       description: If on, the lights will turn on IF and ONLY IF is after the sunset and before of the sunrise
@@ -45,6 +51,7 @@ mode: single
 
 variables:
   turn_on_only_if_after_sunset: !input turn_on_only_if_after_sunset
+  disable_automatic_lights_on: !input disable_automatic_lights_on
 
 triggers:
   - entity_id: !input motion_entity
@@ -72,9 +79,14 @@ triggers:
 actions:
   - choose:
       - conditions:
-          - condition: trigger
-            id:
-              - light-turn-on
+          - condition: and
+            conditions:
+              - condition: trigger
+                id:
+                  - light-turn-on
+              - condition: state
+                entity_id: !input motion_entity
+                state: "off"
         sequence:
           - action: timer.start
             metadata: {}
@@ -115,18 +127,22 @@ actions:
             target:
               entity_id: !input timer_entity
           - if:
-              - condition: or
+              - condition: and
                 conditions:
-                  - condition: and
-                    conditions:
-                      - condition: sun
-                        before: sunrise
-                        after: sunset
-                      - condition: template
-                        value_template: "{{ turn_on_only_if_after_sunset == true }}"
-                    alias: Its dark and the control is on, so the result must be TRUE
                   - condition: template
-                    value_template: "{{ turn_on_only_if_after_sunset == false }}"
+                    value_template: "{{ disable_automatic_lights_on == none or disable_automatic_lights_on == false }}"
+                  - condition: or
+                    conditions:
+                      - condition: and
+                        conditions:
+                          - condition: sun
+                            before: sunrise
+                            after: sunset
+                          - condition: template
+                            value_template: "{{ turn_on_only_if_after_sunset == true }}"
+                        alias: Its dark and the control is on, so the result must be TRUE
+                      - condition: template
+                        value_template: "{{ turn_on_only_if_after_sunset == false }}"
             then:
               - action: light.turn_on
                 metadata: {}
